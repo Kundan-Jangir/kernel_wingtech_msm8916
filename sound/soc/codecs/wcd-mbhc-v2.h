@@ -316,6 +316,26 @@ struct wcd_mbhc_cb {
 	int (*enable_mb_source) (struct snd_soc_codec *, bool);
 	void (*trim_btn_reg) (struct snd_soc_codec *);
 	void (*compute_impedance)(struct wcd_mbhc *, uint32_t *, uint32_t *);
+#define WCD_MBHC_REG_UPDATE_BITS(function, val) \
+{						\
+	snd_soc_update_bits(mbhc->codec,	\
+	mbhc->wcd_mbhc_regs[function].reg,	\
+	mbhc->wcd_mbhc_regs[function].mask,	\
+	val << (mbhc->wcd_mbhc_regs[function].offset)); \
+}
+
+#define WCD_MBHC_REG_READ(function, val)	\
+{						\
+	val = (((snd_soc_read(mbhc->codec,	\
+	mbhc->wcd_mbhc_regs[function].reg)) &	\
+	(mbhc->wcd_mbhc_regs[function].mask)) >> \
+	(mbhc->wcd_mbhc_regs[function].offset)); \
+}
+
+struct wcd_mbhc_cb {
+	int (*enable_mb_source) (struct snd_soc_codec *, bool);
+	void (*trim_btn_reg) (struct snd_soc_codec *);
+	void (*compute_impedance) (struct wcd_mbhc *, uint32_t *, uint32_t *);
 	void (*set_micbias_value) (struct snd_soc_codec *);
 	void (*set_auto_zeroing) (struct snd_soc_codec *, bool);
 	struct firmware_cal * (*get_hwdep_fw_cal)(struct snd_soc_codec *,
@@ -469,6 +489,8 @@ struct wcd_mbhc {
 
 #ifdef CONFIG_SND_SOC_WCD_MBHC
 int wcd_mbhc_set_keycode(struct wcd_mbhc *mbhc);
+
+#ifdef CONFIG_SND_SOC_WCD_MBHC
 int wcd_mbhc_start(struct wcd_mbhc *mbhc,
 		       struct wcd_mbhc_config *mbhc_cfg);
 void wcd_mbhc_stop(struct wcd_mbhc *mbhc);

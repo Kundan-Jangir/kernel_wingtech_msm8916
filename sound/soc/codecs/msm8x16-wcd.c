@@ -195,6 +195,7 @@ enum {
 
 static struct wcd_mbhc_register
 	wcd_mbhc_registers[WCD_MBHC_REG_FUNC_MAX] = {
+static struct wcd_mbhc_register wcd_mbhc_registers[] = {
 
 	WCD_MBHC_REGISTER("WCD_MBHC_L_DET_EN",
 			  MSM8X16_WCD_A_ANALOG_MBHC_DET_CTL_1, 0x80, 7, 0),
@@ -708,6 +709,8 @@ static void msm8x16_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 		goto skip_imped_detect;
 	}
 
+	pr_debug("%s: enter\n", __func__);
+
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
 	reg0 = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_DBNC_TIMER);
 	reg1 = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_BTN2_ZDETH_CTL);
@@ -717,7 +720,6 @@ static void msm8x16_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 
 	msm8x16_wcd->imped_det_pin = WCD_MBHC_DET_BOTH;
 	mbhc->hph_type = WCD_MBHC_HPH_NONE;
-
 	/* disable FSM and micbias*/
 	snd_soc_update_bits(codec,
 			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
@@ -725,6 +727,7 @@ static void msm8x16_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 	snd_soc_update_bits(codec,
 			MSM8X16_WCD_A_ANALOG_MICB_2_EN,
 			0xA5, 0x25);
+			0x80, 0x00);
 	/*
 	 * Enable legacy electrical detection current sources
 	 * and disable fast ramp and enable manual switching
@@ -818,6 +821,36 @@ static void msm8x16_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 
 	msm8x16_set_ref_current(codec, I_pt5_UA);
 	msm8x16_set_ref_current(codec, I_14_UA);
+	/* Enable ZDET_L_MEAS_EN */
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0x08, 0x08);
+	usleep_range(2000, 2100);
+	/* Read Left impedance value from Result1 */
+	impedance_l = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_BTN_RESULT);
+	/* Enable ZDET_R_MEAS_EN */
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0x0C, 0x04);
+	usleep_range(2000, 2100);
+	/* Read Right impedance value from Result1 */
+	impedance_r = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_BTN_RESULT);
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0x04, 0x00);
+
+	if (impedance_l > 2) {
+		high = true;
+		goto exit;
+	}
+
+	/*
+	 * As the result is 0 impedance is < 200 use
+	 * RAMP to measure impedance further.
+	 */
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0xFF, 0x00);
 
 	/* Enable RAMP_L , RAMP_R & ZDET_CHG*/
 	snd_soc_update_bits(codec,
@@ -840,6 +873,26 @@ static void msm8x16_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 
 	min_range_used = msm8x16_adj_ref_current(codec,
 						&impedance_l, &impedance_r);
+	usleep_range(5000, 5100);
+
+	/* Enable ZDET_L_MEAS_EN */
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0x08, 0x08);
+	usleep_range(2000, 2100);
+	/* Read Left impedance value from Result1 */
+	impedance_l = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_BTN_RESULT);
+	/* Enable ZDET_R_MEAS_EN */
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0x0C, 0x04);
+	usleep_range(2000, 2100);
+	/* Read Right impedance value from Result1 */
+	impedance_r = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_BTN_RESULT);
+	snd_soc_update_bits(codec,
+			MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+			0x04, 0x00);
+
 	if (!mbhc->mbhc_cfg->mono_stero_detection) {
 		/* Set ZDET_CHG to 0  to discharge ramp */
 		snd_soc_update_bits(codec,
@@ -901,6 +954,7 @@ static void msm8x16_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 	 * impedance_l is equal to impedance_l_fixed then headset is stereo
 	 * otherwise headset is mono
 	 */
+	mbhc->hph_type = WCD_MBHC_HPH_NONE;
 	if (impedance_l == impedance_l_fixed) {
 		pr_debug("%s: STEREO plug type detected\n",
 			 __func__);
@@ -943,6 +997,10 @@ exit:
 
 	pr_debug("%s: RL %d ohm, RR %d ohm\n", __func__, *zl, *zr);
 skip_imped_detect:
+	msm8x16_wcd_compute_impedance(impedance_l, impedance_r,
+				      zl, zr, high);
+
+	pr_debug("%s: RL %d ohm, RR %d ohm\n", __func__, *zl, *zr);
 	pr_debug("%s: Impedance detection completed\n", __func__);
 }
 
@@ -3529,6 +3587,7 @@ static int msm8x16_wcd_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 			msm8x16_notifier_call(codec,
 					WCD_EVENT_POST_MICBIAS_2_ON);
 		} else if (strnstr(w->name, internal3_text, strlen(w->name))) {
+		} else if (strnstr(w->name, internal3_text, 30)) {
 			snd_soc_update_bits(codec, micb_int_reg, 0x01, 0x01);
 		} else if (strnstr(w->name, external2_text, strlen(w->name))) {
 			msm8x16_notifier_call(codec,
@@ -3542,6 +3601,7 @@ static int msm8x16_wcd_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 			msm8x16_notifier_call(codec,
 					WCD_EVENT_POST_MICBIAS_2_OFF);
 		} else if (strnstr(w->name, internal3_text, strlen(w->name))) {
+		} else if (strnstr(w->name, internal3_text, 30)) {
 			snd_soc_update_bits(codec, micb_int_reg, 0x2, 0x0);
 		} else if (strnstr(w->name, external2_text, strlen(w->name))) {
 			/*
@@ -5020,7 +5080,7 @@ static const struct snd_soc_dapm_widget msm8x16_wcd_dapm_widgets[] = {
 		msm8x16_wcd_codec_enable_micbias, SND_SOC_DAPM_PRE_PMU |
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_ADC_E("ADC1", NULL, MSM8X16_WCD_A_ANALOG_TX_1_EN, 7, 0,
-		msm8x16_wcd_codec_enable_adc, SND_SOC_DAPM_PRE_PMU |
+		msm8x16_wcd_codec_enable_adc, SND_SOC_DAPM_PRE_PMUW |
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_ADC_E("ADC2_INP2",
 		NULL, MSM8X16_WCD_A_ANALOG_TX_2_EN, 7, 0,
