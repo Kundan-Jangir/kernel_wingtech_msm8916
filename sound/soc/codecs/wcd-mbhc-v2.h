@@ -489,6 +489,7 @@ struct wcd_mbhc {
 
 #ifdef CONFIG_SND_SOC_WCD_MBHC
 int wcd_mbhc_set_keycode(struct wcd_mbhc *mbhc);
+void wcd_mbhc_plug_detect_for_debug_mode(struct wcd_mbhc *mbhc, int debug_mode); /* ASUS_BSP Paul +++ */
 
 #ifdef CONFIG_SND_SOC_WCD_MBHC
 int wcd_mbhc_start(struct wcd_mbhc *mbhc,
